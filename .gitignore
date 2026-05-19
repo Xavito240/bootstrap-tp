@@ -1,0 +1,19 @@
+# Credentials et état local (jamais versionner)
+.bootstrap-env
+.bootstrap-env.bak
+.bootstrap-state
+.bootstrap-state.tmp
+
+# Projet généré (a son propre repo)
+tp-devops-agent-ia/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editeurs
+.vscode/
+.idea/
+
+# Sauvegardes sed
+*.bak
