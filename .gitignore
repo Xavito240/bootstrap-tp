@@ -5,6 +5,13 @@
 .bootstrap-state.tmp
 .bootstrap.log
 .bootstrap.lock
+.bootstrap.web.pid
+
+# Web UI : venv + caches Python
+web/venv/
+web/__pycache__/
+web/**/__pycache__/
+*.pyc
 
 # Projet généré (a son propre repo)
 tp-devops-agent-ia/

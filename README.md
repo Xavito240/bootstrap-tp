@@ -1,6 +1,24 @@
 # Bootstrap TP DevSecOps
 
-> Un seul script pour déployer toute la chaîne, du dépôt GitHub vide au déploiement vérifié en production. TUI interactive (gum), idempotent, paramétrable, modulaire.
+> Un seul script (ou une interface web) pour déployer toute la chaîne, du dépôt GitHub vide au déploiement vérifié en production. Idempotent, paramétrable, modulaire.
+
+## Deux modes au choix
+
+### 🖥 Interface web (recommandé pour débutants)
+
+```bash
+./web/start.sh
+```
+
+Un navigateur s'ouvre sur un formulaire, tu remplis, tu cliques, tu regardes les logs en temps réel. Aucune installation préalable autre que Python 3 (le script s'occupe du reste).
+
+### ⌨ CLI (TUI interactive gum)
+
+```bash
+./bootstrap.sh
+```
+
+Pour les habitués du terminal. Voir détails plus bas.
 
 ## Ce que fait le script
 

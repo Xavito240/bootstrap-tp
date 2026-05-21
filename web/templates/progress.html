@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bootstrap en cours…</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="progress-page">
+  <header class="hero">
+    <h1>Bootstrap en cours</h1>
+    <p class="tagline" id="status-line">Démarrage…</p>
+  </header>
+
+  <main class="progress-grid">
+    <aside class="card steps-card">
+      <h2>Étapes</h2>
+      <ol class="steps-list">
+        {% for step_id, step_label in steps %}
+          <li class="step" data-step-id="{{ step_id }}">
+            <span class="step-icon">○</span>
+            <span class="step-label">{{ step_label }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+
+      <div class="actions">
+        <button type="button" id="stop-btn" class="btn btn-danger">Arrêter</button>
+        <a href="{{ url_for('index') }}" class="btn btn-ghost">← Form</a>
+      </div>
+    </aside>
+
+    <section class="card logs-card">
+      <h2>
+        Logs en direct
+        <span class="badge" id="log-status">connexion…</span>
+      </h2>
+      <pre id="log-output" class="log-output">En attente du premier message…</pre>
+    </section>
+  </main>
+
+  <div id="success-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>🎉 Bootstrap terminé</h2>
+      <p>Ton TP est en ligne. Voici tes liens :</p>
+      <ul id="success-links"></ul>
+      <a href="{{ url_for('index') }}" class="btn btn-primary">Retour à l'accueil</a>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='progress.js') }}"></script>
+</body>
+</html>
