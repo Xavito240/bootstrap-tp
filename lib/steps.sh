@@ -443,7 +443,28 @@ print_success() {
 }
 
 show_banner() {
-  gum_box "$C_NAVY_HEX" \
-    "TP DevSecOps — Bootstrap automatisé" \
-    "Création repo + CI/CD + déploiement K8s en un seul script"
+  # ASCII art DEPLOYMATIC en navy + sous-titre coral.
+  # Le banner est large (~94 cols) ; sur un terminal < 90 cols on retombe sur
+  # le gum_box simple pour rester lisible.
+  local cols="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
+  if (( cols < 90 )); then
+    gum_box "$C_NAVY_HEX" \
+      "DeployMatic — TP DevSecOps" \
+      "Création repo + CI/CD + déploiement K8s en un seul script"
+    return 0
+  fi
+
+  printf '%b' "${C_NAVY}${C_BOLD}"
+  cat <<'BANNER'
+
+██████╗ ███████╗██████╗ ██╗      ██████╗ ██╗   ██╗███╗   ███╗ █████╗ ████████╗██╗ ██████╗
+██╔══██╗██╔════╝██╔══██╗██║     ██╔═══██╗╚██╗ ██╔╝████╗ ████║██╔══██╗╚══██╔══╝██║██╔════╝
+██║  ██║█████╗  ██████╔╝██║     ██║   ██║ ╚████╔╝ ██╔████╔██║███████║   ██║   ██║██║
+██║  ██║██╔══╝  ██╔═══╝ ██║     ██║   ██║  ╚██╔╝  ██║╚██╔╝██║██╔══██║   ██║   ██║██║
+██████╔╝███████╗██║     ███████╗╚██████╔╝   ██║   ██║ ╚═╝ ██║██║  ██║   ██║   ██║╚██████╗
+╚═════╝ ╚══════╝╚═╝     ╚══════╝ ╚═════╝    ╚═╝   ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝
+BANNER
+  printf '%b' "${C_RESET}"
+  printf "  ${C_CORAL}Chaîne DevSecOps automatisée — k3s + GitHub Actions + Skills Claude Code${C_RESET}\n"
+  printf "  ${C_DIM}Création repo + CI/CD + déploiement K8s en un seul script${C_RESET}\n\n"
 }
