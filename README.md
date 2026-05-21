@@ -257,4 +257,4 @@ Le CI réapplique automatiquement les manifests et fait le rolling update.
 
 ## Licence
 
-MIT (ou adapte selon tes besoins).
+MIT.
