@@ -1,6 +1,11 @@
 // web/static/progress.js — SSE listener + mise à jour live des étapes/logs.
 
 (() => {
+  const body = document.body;
+  const eventsUrl = body.dataset.eventsUrl;
+  const stateUrl  = body.dataset.stateUrl;
+  const stopUrl   = body.dataset.stopUrl;
+
   const statusLine = document.getElementById("status-line");
   const logOutput = document.getElementById("log-output");
   const logStatus = document.getElementById("log-status");
@@ -10,10 +15,9 @@
   const steps = Array.from(document.querySelectorAll(".step"));
 
   let firstChunk = true;
-  let activeIdx = 0;
 
-  // ----- État initial via /state -----------------------------------------
-  fetch("/state").then(r => r.json()).then((s) => {
+  // ----- État initial ------------------------------------------------------
+  fetch(stateUrl).then(r => r.json()).then((s) => {
     s.completed.forEach(markStepDone);
     updateActiveStep();
     if (!s.running && s.completed.length === s.total) {
@@ -24,8 +28,8 @@
     }
   });
 
-  // ----- SSE flux logs + étapes -------------------------------------------
-  const es = new EventSource("/events");
+  // ----- SSE ---------------------------------------------------------------
+  const es = new EventSource(eventsUrl);
   logStatus.textContent = "live";
   logStatus.classList.add("live");
 
@@ -54,11 +58,11 @@
     }
   });
 
-  // ----- Stop -------------------------------------------------------------
+  // ----- Stop --------------------------------------------------------------
   stopBtn.addEventListener("click", async () => {
     if (!confirm("Arrêter le bootstrap en cours ?")) return;
     try {
-      await fetch("/stop", { method: "POST" });
+      await fetch(stopUrl, { method: "POST" });
       logStatus.textContent = "arrêté";
       logStatus.classList.remove("live");
     } catch (e) {
@@ -66,7 +70,7 @@
     }
   });
 
-  // ----- Helpers ----------------------------------------------------------
+  // ----- Helpers -----------------------------------------------------------
   function appendLog(line) {
     if (firstChunk) {
       logOutput.textContent = "";
@@ -74,16 +78,6 @@
     }
     logOutput.textContent += line + "\n";
     logOutput.scrollTop = logOutput.scrollHeight;
-
-    // Heuristique : si une ligne contient le titre d'une étape, on l'active
-    for (let i = 0; i < steps.length; i++) {
-      const lbl = steps[i].querySelector(".step-label").textContent.toLowerCase();
-      if (line.toLowerCase().includes(lbl.toLowerCase())) {
-        activeIdx = i;
-        updateActiveStep();
-        break;
-      }
-    }
   }
 
   function markStepDone(stepId) {
@@ -95,7 +89,6 @@
   }
 
   function updateActiveStep() {
-    // Trouve la première étape non terminée
     let firstPending = -1;
     for (let i = 0; i < steps.length; i++) {
       if (!steps[i].classList.contains("done")) {
@@ -107,7 +100,6 @@
     steps.forEach((s, i) => {
       s.classList.toggle("active", i === firstPending);
     });
-    activeIdx = firstPending;
     const lbl = steps[firstPending].querySelector(".step-label").textContent;
     statusLine.textContent = "En cours : " + lbl;
   }
@@ -124,26 +116,22 @@
     stopBtn.disabled = true;
 
     if (allDone) {
-      // Récupère les valeurs depuis /state pour construire les liens
-      fetch("/state").then(r => r.json()).then(() => {
-        // On lit aussi le log pour extraire les URLs
-        const text = logOutput.textContent;
-        const repoMatch = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+/);
-        const apiMatch = text.match(/http:\/\/[\w.\-]+\/api\/health/);
+      const text = logOutput.textContent;
+      const repoMatch = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+/);
+      const apiMatch = text.match(/http:\/\/[\w.\-]+\/api\/health/);
 
-        const links = [];
-        if (apiMatch) {
-          const host = apiMatch[0].replace("/api/health", "");
-          links.push(`<a href="${host}/" target="_blank">🌍 Application : ${host}/</a>`);
-          links.push(`<a href="${apiMatch[0]}" target="_blank">♡ Health : ${apiMatch[0]}</a>`);
-        }
-        if (repoMatch) {
-          links.push(`<a href="${repoMatch[0]}" target="_blank">⎇ Dépôt : ${repoMatch[0]}</a>`);
-          links.push(`<a href="${repoMatch[0]}/actions" target="_blank">⚒ CI/CD</a>`);
-        }
-        successLinks.innerHTML = links.map(l => "<li>" + l + "</li>").join("");
-        successModal.classList.remove("hidden");
-      });
+      const links = [];
+      if (apiMatch) {
+        const host = apiMatch[0].replace("/api/health", "");
+        links.push(`<a href="${host}/" target="_blank">🌍 Application : ${host}/</a>`);
+        links.push(`<a href="${apiMatch[0]}" target="_blank">♡ Health : ${apiMatch[0]}</a>`);
+      }
+      if (repoMatch) {
+        links.push(`<a href="${repoMatch[0]}" target="_blank">⎇ Dépôt : ${repoMatch[0]}</a>`);
+        links.push(`<a href="${repoMatch[0]}/actions" target="_blank">⚒ CI/CD</a>`);
+      }
+      successLinks.innerHTML = links.map(l => "<li>" + l + "</li>").join("");
+      successModal.classList.remove("hidden");
     }
   }
 })();

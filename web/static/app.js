@@ -1,4 +1,4 @@
-// web/static/app.js — Validation form + masquage conditionnel auth + submit AJAX.
+// web/static/app.js — Édition d'un workspace : validation + submit AJAX.
 
 (() => {
   const form = document.getElementById("bootstrap-form");
@@ -10,34 +10,36 @@
   const sudoHelpBlock = document.getElementById("sudo-help");
   const resetBtn = document.getElementById("reset-btn");
 
+  const runUrl = form.dataset.runUrl;
+  const resetUrl = form.dataset.resetUrl;
+  const workspace = form.dataset.workspace;
+
   // ----- Affichage conditionnel des champs d'auth SSH ----------------------
   function updateAuthFields() {
     const method = authSelect.value;
     sshKeyField.dataset.hidden = method !== "key";
     sshPwdField.dataset.hidden = method !== "password";
-    // required dynamique pour ne pas bloquer la validation HTML5
     sshKeyField.querySelector("input").required = method === "key";
     sshPwdField.querySelector("input").required = method === "password";
   }
   authSelect.addEventListener("change", updateAuthFields);
   updateAuthFields();
 
-  // ----- Toggle de l'aide sudo --------------------------------------------
+  // ----- Toggle aide sudo --------------------------------------------------
   if (sudoHelpToggle) {
     sudoHelpToggle.addEventListener("click", (e) => {
       e.preventDefault();
       sudoHelpBlock.classList.toggle("hidden");
-      // Personnalise avec le user SSH choisi
       const user = document.getElementById("OVH_USER").value || "devops";
       sudoHelpBlock.textContent = sudoHelpBlock.textContent.replace(/\{utilisateur\}/g, user);
     });
   }
 
-  // ----- Reset ------------------------------------------------------------
+  // ----- Reset -------------------------------------------------------------
   resetBtn.addEventListener("click", async () => {
-    if (!confirm("Effacer toutes les données saisies (.bootstrap-env, état) ?")) return;
+    if (!confirm(`Effacer toutes les données du workspace "${workspace}" ?`)) return;
     try {
-      const r = await fetch("/reset", { method: "POST" });
+      const r = await fetch(resetUrl, { method: "POST" });
       if (r.ok) {
         location.reload();
       } else {
@@ -49,7 +51,7 @@
     }
   });
 
-  // ----- Submit -----------------------------------------------------------
+  // ----- Submit ------------------------------------------------------------
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     hideError();
@@ -60,7 +62,7 @@
 
     const formData = new FormData(form);
     try {
-      const r = await fetch("/run", { method: "POST", body: formData });
+      const r = await fetch(runUrl, { method: "POST", body: formData });
       const j = await r.json();
 
       if (!r.ok) {

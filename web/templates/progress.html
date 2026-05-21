@@ -3,12 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bootstrap en cours…</title>
+  <title>{{ workspace }} — bootstrap en cours</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="progress-page">
+<body class="progress-page"
+      data-workspace="{{ workspace }}"
+      data-events-url="{{ url_for('events_workspace', name=workspace) }}"
+      data-state-url="{{ url_for('state_workspace', name=workspace) }}"
+      data-stop-url="{{ url_for('stop_workspace', name=workspace) }}">
+
+  <nav class="breadcrumb">
+    <a href="{{ url_for('index') }}">← Workspaces</a>
+    <span class="sep">/</span>
+    <strong>{{ workspace }}</strong>
+  </nav>
+
   <header class="hero">
-    <h1>Bootstrap en cours</h1>
+    <h1>Bootstrap en cours — <span class="ws-name">{{ workspace }}</span></h1>
     <p class="tagline" id="status-line">Démarrage…</p>
   </header>
 
@@ -26,7 +37,7 @@
 
       <div class="actions">
         <button type="button" id="stop-btn" class="btn btn-danger">Arrêter</button>
-        <a href="{{ url_for('index') }}" class="btn btn-ghost">← Form</a>
+        <a href="{{ url_for('edit_workspace', name=workspace) }}" class="btn btn-ghost">← Form</a>
       </div>
     </aside>
 
@@ -42,9 +53,9 @@
   <div id="success-modal" class="modal hidden">
     <div class="modal-content">
       <h2>🎉 Bootstrap terminé</h2>
-      <p>Ton TP est en ligne. Voici tes liens :</p>
+      <p>Workspace <strong>{{ workspace }}</strong> déployé. Voici tes liens :</p>
       <ul id="success-links"></ul>
-      <a href="{{ url_for('index') }}" class="btn btn-primary">Retour à l'accueil</a>
+      <a href="{{ url_for('index') }}" class="btn btn-primary">Retour aux workspaces</a>
     </div>
   </div>
 

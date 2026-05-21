@@ -42,6 +42,8 @@ readonly SCRIPT_DIR
 
 # shellcheck source=lib/ui.sh
 source "$SCRIPT_DIR/lib/ui.sh"
+# shellcheck source=lib/workspace.sh
+source "$SCRIPT_DIR/lib/workspace.sh"
 # shellcheck source=lib/config.sh
 source "$SCRIPT_DIR/lib/config.sh"
 # shellcheck source=lib/state.sh
@@ -60,12 +62,31 @@ source "$SCRIPT_DIR/lib/steps.sh"
 source "$SCRIPT_DIR/lib/diag.sh"
 
 # ----- Constantes -----------------------------------------------------------
-readonly STATE_FILE="${SCRIPT_DIR}/.bootstrap-state"
-readonly ENV_FILE="${SCRIPT_DIR}/.bootstrap-env"
-readonly LOG_FILE="${SCRIPT_DIR}/.bootstrap.log"
-readonly LOCK_FILE="${SCRIPT_DIR}/.bootstrap.lock"
+readonly RUNS_DIR="${SCRIPT_DIR}/runs"
 readonly PROJECT_NAME="tp-devops-agent-ia"
-readonly WORK_DIR="${SCRIPT_DIR}/${PROJECT_NAME}"
+
+# Workspace courant (peut être surchargé par --workspace ou $WORKSPACE).
+# Les fichiers d'état dépendent du workspace sélectionné — initialisés plus bas
+# après le parsing des args.
+WORKSPACE="${WORKSPACE:-default}"
+
+# Variables ré-affectées en fin d'args parsing (cf. _init_workspace_paths).
+STATE_FILE=""
+ENV_FILE=""
+LOG_FILE=""
+LOCK_FILE=""
+WORK_DIR=""
+WORKSPACE_DIR=""
+
+_init_workspace_paths() {
+  WORKSPACE_DIR="${RUNS_DIR}/${WORKSPACE}"
+  STATE_FILE="${WORKSPACE_DIR}/.bootstrap-state"
+  ENV_FILE="${WORKSPACE_DIR}/.bootstrap-env"
+  LOG_FILE="${WORKSPACE_DIR}/.bootstrap.log"
+  LOCK_FILE="${WORKSPACE_DIR}/.bootstrap.lock"
+  WORK_DIR="${WORKSPACE_DIR}/${PROJECT_NAME}"
+  mkdir -p "$WORKSPACE_DIR"
+}
 
 DRY_RUN=0
 
@@ -146,13 +167,14 @@ run_pipeline() {
 CONFIG_FILE=""
 ACTION="run"
 LOGS_TARGET="api"
+RM_WORKSPACE_NAME=""
 
 while (( $# > 0 )); do
   case "$1" in
-    --reset)         ACTION="reset" ;;
-    --status)        ACTION="status" ;;
-    --doctor)        ACTION="doctor" ;;
-    --cluster-info)  ACTION="cluster-info" ;;
+    --reset)            ACTION="reset" ;;
+    --status)           ACTION="status" ;;
+    --doctor)           ACTION="doctor" ;;
+    --cluster-info)     ACTION="cluster-info" ;;
     --logs)
       ACTION="logs"
       if [[ "${2:-}" =~ ^(api|web)$ ]]; then
@@ -160,65 +182,95 @@ while (( $# > 0 )); do
         shift
       fi
       ;;
-    --dry-run)       DRY_RUN=1 ;;
+    --dry-run)          DRY_RUN=1 ;;
     --config)
       CONFIG_FILE="${2:?--config requires a file argument}"
       export BOOTSTRAP_NONINTERACTIVE=1
       shift
       ;;
-    --claude|claude) ACTION="claude" ;;
-    --help|-h)       ACTION="help" ;;
+    --workspace|-w)
+      WORKSPACE="${2:?--workspace requires a name}"
+      shift
+      ;;
+    --list-workspaces|--ls) ACTION="list-workspaces" ;;
+    --rm-workspace)
+      ACTION="rm-workspace"
+      RM_WORKSPACE_NAME="${2:?--rm-workspace requires a name}"
+      shift
+      ;;
+    --claude|claude)    ACTION="claude" ;;
+    --help|-h)          ACTION="help" ;;
     *)
       echo "Argument inconnu : $1" >&2
-      echo "Usage : $0 [--reset|--status|--doctor|--logs|--cluster-info|--dry-run|--claude|--config FILE|--help]" >&2
+      echo "Usage : $0 [--workspace NAME] [--reset|--status|--doctor|--logs|--cluster-info|--dry-run|--claude|--config FILE|--list-workspaces|--rm-workspace NAME|--help]" >&2
       exit 1
       ;;
   esac
   shift
 done
 
+# Migration auto de l'ancien layout (.bootstrap-* à la racine) vers runs/default/
+ws_migrate_legacy
+
+# Initialise les paths après le parsing (donc --workspace est pris en compte)
+_init_workspace_paths
+
 # ----- Actions sans pipeline (read-only ou diagnostic) ----------------------
 case "$ACTION" in
   help)
     cat <<'EOF'
-Usage : ./bootstrap.sh [OPTION]
+Usage : ./bootstrap.sh [--workspace NAME] [OPTION]
 
 Déploie le TP DevSecOps de A à Z (microservices + K8s + CI/CD + skills).
 
+Sélection du workspace (projet) :
+  --workspace NAME    Nom du workspace à utiliser (défaut : "default").
+  -w NAME             Alias court de --workspace.
+  --list-workspaces   Liste tous les workspaces sauvegardés.
+  --ls                Alias de --list-workspaces.
+  --rm-workspace NAME Supprime un workspace (sauf "default").
+
 Options principales :
-  (aucun)            Exécution interactive (TUI gum), reprise depuis l'état
-                     courant si .bootstrap-state existe.
-  --config FILE      Mode non-interactif : charge VAR=value depuis FILE.
-  --dry-run          Liste les étapes qui seraient exécutées, sans rien faire.
-  --reset            Efface .bootstrap-state et .bootstrap-env, puis quitte.
-  --status           Affiche la progression et quitte.
+  (aucun)             Exécution interactive (TUI gum), reprise depuis l'état
+                      courant du workspace.
+  --config FILE       Mode non-interactif : charge VAR=value depuis FILE.
+  --dry-run           Liste les étapes qui seraient exécutées, sans rien faire.
+  --reset             Efface l'état et les credentials du workspace courant.
+  --status            Affiche la progression du workspace courant.
 
 Diagnostic (post-bootstrap) :
-  --doctor           Diagnostic global : SSH, cluster, secrets, pods, HTTP.
-  --logs [api|web]   Tail les logs des pods api ou web (défaut: api).
-  --cluster-info     Affiche pods/svc/ingress/nodes du cluster.
+  --doctor            Diagnostic global : SSH, cluster, secrets, pods, HTTP.
+  --logs [api|web]    Tail les logs des pods api ou web (défaut: api).
+  --cluster-info      Affiche pods/svc/ingress/nodes du cluster.
 
 Productivité :
-  --claude (claude)  cd dans le projet et lance la CLI `claude`.
+  --claude (claude)   cd dans le projet et lance la CLI `claude`.
 
 Divers :
-  --help, -h         Affiche cette aide.
+  --help, -h          Affiche cette aide.
 
-Fichiers gérés :
-  .bootstrap-state   Liste des étapes déjà accomplies (idempotence).
-  .bootstrap-env     Credentials collectés (chmod 600, ne pas versionner).
-  .bootstrap.log     Trace horodatée (mode non-interactif ou BOOTSTRAP_LOG=1).
-  .bootstrap.lock    Anti-concurrence ; supprimer manuellement si stale.
+Fichiers gérés (sous runs/<workspace>/) :
+  .bootstrap-state    Liste des étapes déjà accomplies (idempotence).
+  .bootstrap-env      Credentials collectés (chmod 600, ne pas versionner).
+  .bootstrap.log      Trace horodatée (mode non-interactif ou BOOTSTRAP_LOG=1).
+  .bootstrap.lock     Anti-concurrence ; supprimer manuellement si stale.
+  tp-devops-agent-ia/ Dossier du projet généré par ce workspace.
 
 Variables d'environnement :
-  BOOTSTRAP_LOG=1    Force l'écriture du .bootstrap.log même en interactif.
-                     (Sinon le logging est désactivé pour préserver gum.)
+  WORKSPACE=NAME      Équivalent à --workspace NAME.
+  BOOTSTRAP_LOG=1     Force l'écriture du .bootstrap.log même en interactif.
 
-Pour repartir d'un état propre :
-  ./bootstrap.sh --reset && ./bootstrap.sh
+Exemples :
+  ./bootstrap.sh                            # workspace "default"
+  ./bootstrap.sh --workspace tp1            # workspace "tp1"
+  ./bootstrap.sh -w prod --doctor           # doctor sur le workspace "prod"
+  ./bootstrap.sh --list-workspaces          # voir tous les workspaces
+  ./bootstrap.sh --rm-workspace old-tp      # supprimer
 EOF
     exit 0
     ;;
+  list-workspaces) ws_list; exit 0 ;;
+  rm-workspace)    ws_delete "$RM_WORKSPACE_NAME"; exit $? ;;
   reset)         state_reset; exit 0 ;;
   status)        state_show; exit 0 ;;
   doctor)        load_env >/dev/null 2>&1 || true; cmd_doctor; exit $? ;;
@@ -256,6 +308,7 @@ acquire_lock
 
 ensure_gum
 show_banner
+ui_info "Workspace : ${WORKSPACE}  (runs/${WORKSPACE}/)"
 load_env
 
 if [[ -n "$CONFIG_FILE" ]]; then

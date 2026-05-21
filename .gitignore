@@ -1,4 +1,7 @@
-# Credentials et état local (jamais versionner)
+# Workspaces (état local de chaque projet — jamais versionner)
+runs/
+
+# Legacy (ancien layout, gardés au cas où un user revient en arrière)
 .bootstrap-env
 .bootstrap-env.bak
 .bootstrap-state
@@ -13,7 +16,7 @@ web/__pycache__/
 web/**/__pycache__/
 *.pyc
 
-# Projet généré (a son propre repo)
+# Projet généré legacy (a son propre repo)
 tp-devops-agent-ia/
 
 # OS

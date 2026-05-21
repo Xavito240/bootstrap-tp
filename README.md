@@ -11,6 +11,7 @@
 ## Table des matières
 
 - [Démarrage rapide](#démarrage-rapide)
+- [Workspaces (plusieurs projets)](#workspaces-plusieurs-projets)
 - [Interface web (recommandée)](#interface-web-recommandée)
 - [CLI (pour habitués du terminal)](#cli-pour-habitués-du-terminal)
 - [Ce que fait le script](#ce-que-fait-le-script)
@@ -40,6 +41,45 @@ cd bootstrap-tp
 ```
 
 > 💡 Si tu n'es pas à l'aise avec le terminal : **prends l'option A**. Tu n'auras besoin que de ton navigateur après le `./web/start.sh`.
+
+---
+
+## Workspaces (plusieurs projets)
+
+Tu peux gérer **plusieurs projets en parallèle** sur la même machine. Chacun a son état isolé sous `runs/<nom>/` (credentials, state, log, projet généré).
+
+### Via la Web UI
+
+La page d'accueil de l'UI liste tous tes workspaces avec leur progression. Tu cliques sur "+ Nouveau workspace", tu choisis un nom, et tu remplis le form pour ce projet précis. Tu peux switcher entre eux à tout moment.
+
+### Via la CLI
+
+```bash
+./bootstrap.sh --list-workspaces                # liste tous les workspaces
+./bootstrap.sh --workspace tp1                  # bootstrap dans le workspace "tp1"
+./bootstrap.sh -w prod --doctor                 # diagnostic sur le workspace "prod"
+./bootstrap.sh --workspace staging --status     # progression du workspace "staging"
+./bootstrap.sh --rm-workspace old-tp            # suppression
+```
+
+Sans `--workspace`, le workspace `default` est utilisé (compatible avec l'ancien comportement).
+
+### Layout sur disque
+
+```
+runs/
+├── default/                          ← workspace par défaut (créé par migration auto)
+│   ├── .bootstrap-env                ← credentials chmod 600
+│   ├── .bootstrap-state              ← étapes déjà accomplies
+│   ├── .bootstrap.log                ← trace horodatée
+│   └── tp-devops-agent-ia/           ← projet généré pour ce workspace
+├── tp1/
+│   └── …
+└── prod/
+    └── …
+```
+
+> **Migration** : si tu avais un `.bootstrap-env`, `.bootstrap-state` ou un `tp-devops-agent-ia/` à la racine (ancien layout), ils sont automatiquement déplacés dans `runs/default/` au premier lancement.
 
 ---
 
@@ -196,6 +236,8 @@ bootstrap-tp/
 ```
 
 **Ajouter une variable** : une seule ligne à `ALL_VARS` dans `lib/config.sh`. Le reste suit (save/load/reset/form web).
+
+**Ajouter un workspace** : `./bootstrap.sh --workspace nouveau` — le dossier est créé à la volée et tu peux le configurer indépendamment du reste.
 
 ---
 
