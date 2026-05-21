@@ -153,7 +153,73 @@ else
   ok "fail2ban déjà présent"
 fi
 
-# ----- 9. Récapitulatif -----------------------------------------------------
+# ----- 9. MOTD DeployMatic --------------------------------------------------
+# Banner ASCII affiché à chaque connexion SSH. Placé en 00-deploymatic pour
+# passer avant le 00-header par défaut d'Ubuntu (ordre lexicographique).
+log "Installation du MOTD DeployMatic…"
+
+sudo tee /etc/update-motd.d/00-deploymatic > /dev/null <<'MOTD_EOF'
+#!/bin/sh
+# Banner DeployMatic — généré par bootstrap-tp/lib/prepare_server.sh
+
+NAVY="\033[38;5;25m"
+CORAL="\033[38;5;203m"
+GREEN="\033[38;5;35m"
+DIM="\033[2m"
+RESET="\033[0m"
+BOLD="\033[1m"
+
+printf '%b' "${NAVY}${BOLD}"
+cat <<'BANNER'
+
+██████╗ ███████╗██████╗ ██╗      ██████╗ ██╗   ██╗███╗   ███╗ █████╗ ████████╗██╗ ██████╗
+██╔══██╗██╔════╝██╔══██╗██║     ██╔═══██╗╚██╗ ██╔╝████╗ ████║██╔══██╗╚══██╔══╝██║██╔════╝
+██║  ██║█████╗  ██████╔╝██║     ██║   ██║ ╚████╔╝ ██╔████╔██║███████║   ██║   ██║██║
+██║  ██║██╔══╝  ██╔═══╝ ██║     ██║   ██║  ╚██╔╝  ██║╚██╔╝██║██╔══██║   ██║   ██║██║
+██████╔╝███████╗██║     ███████╗╚██████╔╝   ██║   ██║ ╚═╝ ██║██║  ██║   ██║   ██║╚██████╗
+╚═════╝ ╚══════╝╚═╝     ╚══════╝ ╚═════╝    ╚═╝   ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝
+BANNER
+printf '%b' "${RESET}"
+
+# Sous-titre coral
+printf "  ${CORAL}Chaîne DevSecOps automatisée — k3s + GitHub Actions + Skills Claude Code${RESET}\n\n"
+
+# Infos système
+printf "  ${BOLD}Système${RESET}\n"
+printf "    Hostname    : %s\n" "$(hostname)"
+printf "    OS          : %s\n" "$(lsb_release -ds 2>/dev/null || uname -s)"
+printf "    Uptime      : %s\n" "$(uptime -p 2>/dev/null || uptime)"
+printf "    Load        : %s\n" "$(awk '{print $1, $2, $3}' /proc/loadavg 2>/dev/null || echo n/a)"
+echo
+
+# Infos cluster k3s
+if command -v kubectl >/dev/null 2>&1; then
+    export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
+    if [ -r "$KUBECONFIG" ] && kubectl get nodes >/dev/null 2>&1; then
+        printf "  ${BOLD}Cluster Kubernetes${RESET}\n"
+        kubectl get nodes --no-headers 2>/dev/null \
+          | awk -v g="$(printf '\033[38;5;35m')" -v r="$(printf '\033[0m')" \
+            '{printf "    %s : %s%s%s  (%s)\n", $1, ($2=="Ready"?g:""), $2, ($2=="Ready"?r:""), $5}'
+        pods_running=$(kubectl get pods -A --no-headers 2>/dev/null | awk '$4=="Running"' | wc -l)
+        pods_total=$(kubectl get pods -A --no-headers 2>/dev/null | wc -l)
+        printf "    Pods        : %s / %s running\n" "$pods_running" "$pods_total"
+        echo
+    fi
+fi
+
+printf "  ${DIM}» bootstrap-tp : ./bootstrap.sh claude  pour piloter via IA${RESET}\n\n"
+MOTD_EOF
+
+sudo chmod +x /etc/update-motd.d/00-deploymatic
+
+# Désactive le motd-news (pub Ubuntu Pro/Canonical) pour un banner propre
+if [ -f /etc/default/motd-news ]; then
+    sudo sed -i 's/^ENABLED=.*/ENABLED=0/' /etc/default/motd-news 2>/dev/null || true
+fi
+
+ok "MOTD DeployMatic installé (visible au prochain ssh)"
+
+# ----- 10. Récapitulatif ----------------------------------------------------
 echo
 echo "═══════════════════════════════════════════════════════════"
 echo "  Serveur préparé — récapitulatif"
