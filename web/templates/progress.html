@@ -23,6 +23,16 @@
     <p class="tagline" id="status-line">Démarrage…</p>
   </header>
 
+  <!-- Bannière success affichée si le workspace est DÉJÀ terminé à l'arrivée
+       (au lieu d'un modal bloquant). -->
+  <div id="success-banner" class="success-banner hidden">
+    <div class="success-banner-inner">
+      <strong>✓ Ce workspace est déjà déployé.</strong>
+      <span>Tu peux le relancer (ré-applique l'état) ou voir les liens ci-dessous.</span>
+      <a href="#success-section" class="btn btn-ghost btn-small">Voir les liens ↓</a>
+    </div>
+  </div>
+
   <main class="progress-grid">
     <aside class="card steps-card">
       <h2>Étapes</h2>
@@ -50,12 +60,24 @@
     </section>
   </main>
 
+  <section id="success-section" class="card success-section hidden">
+    <h2>🎉 Liens du déploiement</h2>
+    <ul id="success-links"></ul>
+    <a href="{{ url_for('index') }}" class="btn btn-ghost">← Retour aux workspaces</a>
+  </section>
+
+  <!-- Modal : ouvert UNIQUEMENT lors d'une transition running→done en live.
+       Bouton fermer (×) pour ne plus jamais bloquer la page. -->
   <div id="success-modal" class="modal hidden">
     <div class="modal-content">
+      <button type="button" class="modal-close" aria-label="Fermer" title="Fermer">×</button>
       <h2>🎉 Bootstrap terminé</h2>
       <p>Workspace <strong>{{ workspace }}</strong> déployé. Voici tes liens :</p>
-      <ul id="success-links"></ul>
-      <a href="{{ url_for('index') }}" class="btn btn-primary">Retour aux workspaces</a>
+      <ul id="modal-links"></ul>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost modal-close-btn">Continuer ici</button>
+        <a href="{{ url_for('index') }}" class="btn btn-primary">Retour aux workspaces</a>
+      </div>
     </div>
   </div>
 
