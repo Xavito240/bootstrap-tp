@@ -209,6 +209,13 @@ while (( $# > 0 )); do
   shift
 done
 
+# ----- Banner DeployMatic : LA TOUTE PREMIÈRE chose visible -----------------
+# Affiché avant migration / log_init / ensure_gum pour qu'aucun message
+# d'init ne s'imprime avant le logo. Exception : --claude (hand-off direct).
+if [[ "$ACTION" != "claude" ]]; then
+  show_banner
+fi
+
 # Migration auto de l'ancien layout (.bootstrap-* à la racine) vers runs/default/
 ws_migrate_legacy
 
@@ -307,7 +314,7 @@ install_error_trap
 acquire_lock
 
 ensure_gum
-show_banner
+# Banner déjà affiché en haut du script (avant la migration / log_init)
 ui_info "Workspace : ${WORKSPACE}  (runs/${WORKSPACE}/)"
 load_env
 
