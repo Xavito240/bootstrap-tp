@@ -1,33 +1,33 @@
 # Bootstrap TP DevSecOps
 
-> Un seul script pour déployer toute la chaîne, du dépôt GitHub vide au déploiement vérifié en production. TUI interactive (gum), idempotent, paramétrable.
+> Un seul script pour déployer toute la chaîne, du dépôt GitHub vide au déploiement vérifié en production. TUI interactive (gum), idempotent, paramétrable, modulaire.
 
 ## Ce que fait le script
 
-`bootstrap.sh` enchaîne 18 étapes de manière **idempotente** (relançable sans tout recasser) :
+`bootstrap.sh` enchaîne **18 étapes idempotentes** : génération du code, provisioning du serveur, création du dépôt GitHub, CI/CD, déploiement K8s et validation HTTP — le tout pilotable depuis un seul terminal.
 
-| # | Étape | Action |
+| # | État | Action |
 |---|---|---|
-| 1 | `prereqs_checked` | Vérifie git, gh, ssh, curl, jq, docker, claude, gum |
-| 2 | `credentials_collected` | TUI gum pour collecter username GitHub, Docker Hub, IP serveur, clé SSH, paramètres app |
-| 3 | `ssh_validated` | Teste la connexion SSH au serveur |
+| 1 | `prereqs_checked` | Vérifie git, gh, ssh, curl, jq, docker, kubectl, claude, gum |
+| 2 | `credentials_collected` | TUI gum : GitHub, Docker Hub, IP serveur, clé/mdp SSH, app params |
+| 3 | `ssh_validated` | Test SSH (clé ou mot de passe via sshpass) |
 | 4 | `project_dir_created` | Crée le dossier de travail local |
-| 5 | `microservices_generated` | Génère API Express + Front nginx + Dockerfiles |
-| 6 | `manifests_generated` | Génère manifests K8s (deployments + services + ingress) |
-| 7 | `skills_generated` | Génère les 4 Skills Claude Code |
-| 8 | `workflow_generated` | Génère `.github/workflows/deploy.yml` |
-| 9 | `sudo_nopasswd_enabled` | Configure sudo NOPASSWD sur le serveur |
-| 10 | `server_prepared` | SSH : installe Docker, k3s, kubectl, ufw, fail2ban |
-| 11 | `kubeconfig_fetched` | Récupère le kubeconfig localement |
-| 12 | `initial_manifests_applied` | Applique les manifests sur le cluster (deployments initiaux) |
-| 13 | `github_repo_created` | Crée le dépôt GitHub via `gh repo create` |
-| 14 | `github_secrets_set` | Configure les secrets (DOCKERHUB, OVH_*) |
-| 15 | `git_initialized` | `git init` + remote origin |
-| 16 | `git_pushed` | Push initial sur main → déclenche le workflow |
-| 17 | `first_deploy_triggered` | Attend la fin du premier workflow (spinner gum) |
-| 18 | `deployment_validated` | curl /api/health pour confirmer |
+| 5 | `microservices_generated` | API Express + Front nginx + Dockerfiles |
+| 6 | `manifests_generated` | Deployments + Services + Ingress (+ ClusterIssuer si TLS) |
+| 7 | `skills_generated` | 5 Skills Claude Code custom |
+| 8 | `workflow_generated` | `.github/workflows/deploy.yml` (gitleaks + trivy intégrés) |
+| 9 | `sudo_nopasswd_enabled` | Configure sudo NOPASSWD côté serveur |
+| 10 | `server_prepared` | Docker, k3s, kubectl, helm, ufw, fail2ban, cert-manager (opt) |
+| 11 | `kubeconfig_fetched` | Kubeconfig copié + testé localement |
+| 12 | `initial_manifests_applied` | Premier kubectl apply (avant le 1er workflow) |
+| 13 | `github_repo_created` | `gh repo create` |
+| 14 | `github_secrets_set` | Upload DOCKERHUB_*, OVH_* (clé SSH OU mot de passe) |
+| 15 | `git_initialized` | git init + remote origin |
+| 16 | `git_pushed` | Push initial → déclenche le workflow |
+| 17 | `first_deploy_triggered` | Suit le workflow avec gum spin (timeout 10 min) |
+| 18 | `deployment_validated` | curl /api/health + frontend |
 
-> Note : les étapes de **génération de fichiers** (5, 6, 8) sont rejouées à chaque run pour rester en phase avec `.bootstrap-env` (si tu changes `APP_NAME`, les manifests sont régénérés).
+> Les étapes 5/6/7/8 sont rejouées à chaque run (overwrite idempotent) pour rester en phase avec `.bootstrap-env`. Le `.bootstrap-state` tracke ce qui est "fait".
 
 ## Utilisation
 
@@ -35,17 +35,58 @@
 # Première exécution (TUI interactive)
 ./bootstrap.sh
 
+# Voir ce qui serait fait sans rien exécuter
+./bootstrap.sh --dry-run
+
 # Mode non-interactif (CI/CD ou reproduction)
 ./bootstrap.sh --config my-deployment.env
 
-# Voir l'avancement
-./bootstrap.sh --status
+# Diagnostic post-déploiement
+./bootstrap.sh --doctor          # SSH + cluster + secrets + pods + HTTP
+./bootstrap.sh --logs api        # tail logs du pod API (Ctrl-C pour sortir)
+./bootstrap.sh --logs web        # idem pour Web
+./bootstrap.sh --cluster-info    # nodes/pods/svc/ingress en une vue
 
-# Tout effacer et recommencer
-./bootstrap.sh --reset
+# Lancer Claude Code dans le projet
+./bootstrap.sh claude            # cd tp-devops-agent-ia/ && exec claude
+
+# Maintenance
+./bootstrap.sh --status          # affiche les étapes faites/restantes
+./bootstrap.sh --reset           # efface .bootstrap-state + .bootstrap-env
+./bootstrap.sh --help            # aide complète
 ```
 
-### Mode non-interactif : `--config FILE`
+## Architecture modulaire
+
+Le script est éclaté en modules réutilisables sous `lib/` :
+
+```
+bootstrap.sh                Orchestrateur (PIPELINE déclaratif, ~240 lignes)
+lib/
+  ui.sh                     gum wrappers + fallback ANSI (ui_prompt, ui_choose, gum_box…)
+  state.sh                  state_has / state_mark / state_show piloté par PIPELINE
+  config.sh                 ALL_VARS = source unique pour save/load/reset
+  ssh_remote.sh             ssh_remote, ssh_remote_tty, scp_remote (clé ou password)
+  prereqs.sh                ensure_gum, check_prereqs, ensure_sshpass
+  collect.sh                collect_credentials, confirm_summary, show_summary
+  runtime.sh                log_init, acquire_lock, trap d'erreur, dry-run
+  diag.sh                   cmd_doctor, cmd_logs, cmd_cluster_info
+  steps.sh                  Les 16 fonctions step_* exécutées par le pipeline
+  gen_microservices.sh      API Express + Front nginx + Dockerfiles
+  gen_manifests.sh          Deployments, Services, Ingress, ClusterIssuer TLS
+  gen_workflow.sh           Workflow GitHub Actions (gitleaks + trivy)
+  gen_skills.sh             Skills Claude Code (5)
+  prepare_server.sh         Provisioning serveur (exécuté via SSH)
+```
+
+**Ajouter une étape** = ajouter une ligne au tableau `PIPELINE` de `bootstrap.sh` :
+```bash
+"my_step_id|Mon étape|step_my_function"
+```
+
+**Ajouter une variable** = ajouter son nom à `ALL_VARS` dans `lib/config.sh`. Le reste suit (save/load/reset).
+
+## Mode non-interactif : `--config FILE`
 
 Format `VAR=value`, une par ligne :
 
@@ -58,7 +99,9 @@ DOCKERHUB_USER="myuser"
 DOCKERHUB_TOKEN="dckr_pat_..."
 OVH_HOST="1.2.3.4"
 OVH_USER="devops"
+OVH_AUTH_METHOD="key"               # ou "password"
 OVH_SSH_KEY_PATH="/home/user/.ssh/id_ed25519"
+# OVH_PASSWORD="..."                # si OVH_AUTH_METHOD=password
 APP_NAME="my-app"
 APP_PORT="80"
 API_PORT="3000"
@@ -67,16 +110,13 @@ REPLICAS_WEB="2"
 CPU_LIMIT_API="500m"
 MEM_LIMIT_API="256Mi"
 DEPLOY_ENV="prod"
-INGRESS_HOST=""
+INGRESS_HOST="my-app.example.com"   # hostname public, vide = match par IP
+ACME_EMAIL="me@example.com"         # si INGRESS_HOST défini → TLS auto Let's Encrypt
 ```
-
-Lance avec :
 
 ```bash
 ./bootstrap.sh --config my-deployment.env
 ```
-
-Aucune question posée, exécution complète, idéal pour CI/CD ou reproduction de déploiement.
 
 ## Paramètres collectés
 
@@ -89,7 +129,9 @@ Aucune question posée, exécution complète, idéal pour CI/CD ou reproduction 
 | `DOCKERHUB_TOKEN` | (requis, masqué) | Token push (scope R/W/D) |
 | `OVH_HOST` | (requis) | IP/hostname du serveur cible |
 | `OVH_USER` | `devops` | Utilisateur SSH |
-| `OVH_SSH_KEY_PATH` | `~/.ssh/id_ed25519` | Chemin clé privée |
+| `OVH_AUTH_METHOD` | `key` | `key` (clé SSH) ou `password` (via sshpass) |
+| `OVH_SSH_KEY_PATH` | `~/.ssh/id_ed25519` | Chemin clé privée (mode key) |
+| `OVH_PASSWORD` | — | Mot de passe SSH (mode password, masqué) |
 | `APP_NAME` | `tp-app` | Préfixe images Docker et noms de deployments |
 | `APP_PORT` | `80` | Port HTTP du frontend |
 | `API_PORT` | `3000` | Port HTTP de l'API |
@@ -97,91 +139,87 @@ Aucune question posée, exécution complète, idéal pour CI/CD ou reproduction 
 | `REPLICAS_WEB` | `2` | Nombre de réplicas Web |
 | `CPU_LIMIT_API` | `200m` | Limite CPU API |
 | `MEM_LIMIT_API` | `128Mi` | Limite mémoire API |
-| `DEPLOY_ENV` | `dev` | `dev` / `staging` / `prod` (gum choose) |
+| `DEPLOY_ENV` | `dev` | `dev` / `staging` / `prod` |
 | `INGRESS_HOST` | (vide) | Hostname Ingress, vide = match par IP |
+| `ACME_EMAIL` | (vide) | Email Let's Encrypt (TLS auto si défini ET INGRESS_HOST défini) |
 
-Tout est sauvegardé dans `.bootstrap-env` (chmod 600).
+Tout est sauvegardé dans `.bootstrap-env` (chmod 600, gitignoré).
 
-## Pré-requis sur le poste local
+## Robustesse
+
+- **Idempotence** via `.bootstrap-state` (relance = reprise propre)
+- **Lock file** `.bootstrap.lock` : pas de double exécution accidentelle
+- **Trap d'erreur** global : en cas de crash, affiche l'étape, la ligne, la commande, et le chemin du log
+- **Logging fichier** `.bootstrap.log` horodaté (auto en mode non-interactif ; opt-in via `BOOTSTRAP_LOG=1` en interactif pour ne pas casser gum)
+- **`--dry-run`** : liste les étapes qui seraient exécutées sans rien faire
+- **Cache cluster** : `kubeconfig` récupéré + testé une fois, réutilisé
+
+## Sécurité (DevSecOps intégré)
+
+Le workflow CI/CD généré inclut une chaîne de sécurité bloquante :
+
+- **`gitleaks-action@v2`** : scan secrets dans l'arbre Git → bloque le build si fuite détectée
+- **`trivy-action@v0.36.0`** : scan vulnérabilités des images Docker (severity HIGH+CRITICAL) → bloque le déploiement
+- **`cert-manager`** : provisioning TLS automatique via Let's Encrypt (HTTP-01) si `INGRESS_HOST` + `ACME_EMAIL` sont fournis
+- **Serveur** : ufw (deny incoming par défaut) + fail2ban + sudo NOPASSWD ciblé
+- **Pods** : `runAsNonRoot`, `runAsUser: 1000`, `allowPrivilegeEscalation: false`, capabilities drop ALL
+
+Côté local :
+- `.bootstrap-env` chmod 600, gitignoré
+- Token Docker Hub saisi via `gum input --password` (jamais à l'écran)
+- Clé SSH validée AVANT upload côté CI (rejet des clés à passphrase qui casseraient le runner)
+
+## Skills Claude Code générées
+
+Le bootstrap génère 5 Skills custom dans `.agents/skills/` du projet :
+
+| Skill | Rôle |
+|---|---|
+| `microservice-editor` | Modifie le code de l'API (Express) ou du Front (HTML) en suivant les conventions |
+| `github-flow` | Commits conventionnels + push sur main |
+| `k8s-deploy` | Déploie une nouvelle version via GitOps (bump version → push → CI/CD) |
+| `health-monitor` | Vérifie la santé post-deploy, **rollback automatique** si échec |
+| `rollback-manager` | Rollback **manuel** ciblé (par revision ou SHA git) |
+
+Après bootstrap :
+```bash
+./bootstrap.sh claude
+> "Ajoute une route /stats à l'API, déploie, vérifie la santé"
+```
+
+Claude détecte les Skills, les enchaîne et te ramène un déploiement live en ~3 minutes.
+
+## Pré-requis local
 
 ```bash
 # macOS
-brew install git gh docker jq gum
+brew install git gh jq gum
+# bash 4+ recommandé : brew install bash (le bash 3.2 macOS marche aussi)
 
-# Ubuntu/Debian
-sudo apt install git gh docker.io jq curl
+# Ubuntu / Debian
+sudo apt install git gh jq curl
 # gum : https://github.com/charmbracelet/gum#installation
 
-# Claude Code (optionnel mais recommandé)
-# voir https://claude.com/code
+# Optionnels
+brew install docker kubectl                # ou apt équivalents
+# claude : https://docs.claude.com/claude-code
 ```
 
-> Si `gum` n'est pas installé, le script propose de l'installer automatiquement (brew/apt). Refus → fallback texte (prompts `read` classiques).
+> Si `gum` n'est pas installé, le script propose l'install auto (brew/apt). Refus → fallback texte (prompts `read` classiques).
 
 ## Pré-requis serveur
 
 - Ubuntu 22.04+ (ou Debian 12+)
 - Un utilisateur avec sudo (par défaut `devops`)
-- Accès SSH par clé (pas de mot de passe)
-- Ports ouverts : 22, 80, 443, 6443
+- Accès SSH par **clé OU mot de passe** (le script choisit selon `OVH_AUTH_METHOD`)
+- Ports ouverts : 22, 80, 443, 6443 (le script configure ufw automatiquement)
 
-Le serveur est sécurisé automatiquement par le script (ufw + fail2ban).
+## Variables d'environnement
 
-## Structure du repo bootstrap
-
-```
-.
-├── bootstrap.sh             # Script principal (orchestration + TUI gum)
-├── lib/
-│   ├── gen_microservices.sh # Génère API + Web (utilise APP_NAME, APP_PORT, API_PORT)
-│   ├── gen_manifests.sh     # Génère manifests K8s (replicas, ressources, ingress host)
-│   ├── gen_skills.sh        # Génère les 4 Skills Claude Code
-│   ├── gen_workflow.sh      # Génère le workflow GitHub Actions
-│   └── prepare_server.sh    # Exécuté via SSH, prépare le serveur
-├── .bootstrap-state         # Fichier d'état (généré, ne pas versionner)
-├── .bootstrap-env           # Credentials (généré, ne pas versionner, chmod 600)
-└── tp-devops-agent-ia/      # Dossier du projet créé par le bootstrap
-```
-
-## TUI gum
-
-Le script utilise [gum](https://github.com/charmbracelet/gum) pour l'expérience interactive :
-
-- `gum input` pour les questions (avec placeholder = valeur par défaut)
-- `gum input --password` pour le token Docker Hub
-- `gum choose` pour `DEPLOY_ENV` (dev / staging / prod)
-- `gum confirm` pour les validations Y/n
-- `gum style --border` pour le banner, les en-têtes d'étapes, le récap et le succès final
-- `gum spin --show-output` pour l'attente du workflow CI
-
-Palette projet : navy `#1E2761`, coral `#F96167`, vert `#2C8B5A`.
-
-### Écran récapitulatif
-
-Avant d'exécuter le bootstrap, un récap de tous les paramètres collectés s'affiche dans un `gum style` encadré. Confirmation `gum confirm` :
-- **Oui** → on enchaîne sur la validation SSH puis tout le reste.
-- **Non** → la collecte rouvre, tu peux corriger.
-
-## Sécurité
-
-- Les credentials sont stockés dans `.bootstrap-env` avec **chmod 600**
-- Ce fichier est ignoré par git (et n'est PAS copié dans le projet généré)
-- Les secrets GitHub Actions sont uploadés via `gh secret set` (chiffrés au repos chez GitHub)
-- La clé SSH n'est jamais commitée, lue depuis `OVH_SSH_KEY_PATH`
-- Le token Docker Hub est saisi via `gum input --password` (jamais affiché à l'écran)
-- Le serveur est sécurisé automatiquement (ufw + fail2ban + sudo NOPASSWD ciblé sur l'utilisateur de déploiement)
-
-## Après bootstrap
-
-Une fois le bootstrap terminé, on peut piloter le projet en langage naturel :
-
-```bash
-cd tp-devops-agent-ia
-claude
-> "Ajoute une route /stats dans l'API qui retourne {requests, errors, uptime}, déploie, vérifie"
-```
-
-Claude Code détecte automatiquement les 4 skills, les enchaîne, et te ramène un déploiement live en ~3 minutes.
+| Variable | Effet |
+|---|---|
+| `BOOTSTRAP_NONINTERACTIVE=1` | Active le mode non-interactif (auto si `--config` passé) |
+| `BOOTSTRAP_LOG=1` | Force le `.bootstrap.log` même en interactif (TUI gum dégradée) |
 
 ## Dépannage
 
@@ -189,23 +227,23 @@ Claude Code détecte automatiquement les 4 skills, les enchaîne, et te ramène 
 |---|---|
 | `gh: command not found` | `brew install gh` ou `sudo apt install gh` |
 | `gum: command not found` | Le script propose l'install auto ; sinon https://github.com/charmbracelet/gum |
-| `${var,,}: bad substitution` | bash 3.2 (macOS) : utiliser `/opt/homebrew/bin/bash` ou installer bash 4+ |
-| `Permission denied (publickey)` | Ta clé publique doit être dans `~/.ssh/authorized_keys` du serveur |
-| Workflow échoué | `gh run view --log` pour voir les logs détaillés |
-| Pods en `ImagePullBackOff` | Vérifier que `DOCKERHUB_TOKEN` a bien les permissions Read/Write/Delete |
-| `kubectl: connection refused` | Vérifier que le port 6443 est ouvert dans UFW |
-| `deployment X not found` au `set image` | Le step "Apply manifests" du workflow n'a pas tourné ou a échoué — vérifier ses logs |
-| Ingress invalide (`host: ...`) | `INGRESS_HOST` dans `.bootstrap-env` contient une valeur invalide — vider et regen (`./bootstrap.sh`) |
+| `syntax error near unexpected token '>'` | Tu as lancé via `sh` ; le script se re-exec sous bash automatiquement maintenant |
+| `tmp: unbound variable` | (corrigé) bug `trap RETURN` qui leakait — relance simplement |
+| `Permission denied (publickey)` | Ta clé publique doit être dans `~/.ssh/authorized_keys` du serveur, ou bascule sur `OVH_AUTH_METHOD=password` |
+| Workflow échoué sur gitleaks | Un secret est dans ton historique git, le retirer (`git filter-repo` ou `BFG`) |
+| Workflow échoué sur trivy | Image trop vulnérable (HIGH+CRITICAL) ; mettre à jour la base ou relâcher `severity: CRITICAL` dans `lib/gen_workflow.sh` |
+| Pods en `ImagePullBackOff` | Token Docker Hub manque la permission Read/Write/Delete |
+| `kubectl: connection refused` | Port 6443 fermé ; vérifier ufw côté serveur |
+| `deployment X not found` au `set image` | Le step "Apply manifests" du workflow n'a pas tourné, voir ses logs |
+| Lock file stale après crash | `rm .bootstrap.lock` puis relance |
 
 ## Changer un paramètre après bootstrap
 
-Les paramètres sont chargés depuis `.bootstrap-env` à chaque run. Pour changer `APP_NAME`, `REPLICAS_API`, etc. :
-
 ```bash
-# 1. Éditer .bootstrap-env
+# 1. Édite .bootstrap-env (ou supprime juste la ligne du paramètre puis relance)
 nano .bootstrap-env
 
-# 2. Re-runner — les fichiers de génération sont toujours rejoués
+# 2. Relance — les étapes "génération" rejouent toujours, les autres skip
 ./bootstrap.sh
 
 # 3. Push les nouveaux manifests/workflow
@@ -216,3 +254,7 @@ git push
 ```
 
 Le CI réapplique automatiquement les manifests et fait le rolling update.
+
+## Licence
+
+MIT (ou adapte selon tes besoins).

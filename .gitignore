@@ -3,6 +3,8 @@
 .bootstrap-env.bak
 .bootstrap-state
 .bootstrap-state.tmp
+.bootstrap.log
+.bootstrap.lock
 
 # Projet généré (a son propre repo)
 tp-devops-agent-ia/

@@ -8,7 +8,8 @@
 #   APP_NAME (tp-app), APP_PORT (80), API_PORT (3000),
 #   REPLICAS_API (2), REPLICAS_WEB (2),
 #   CPU_LIMIT_API (200m), MEM_LIMIT_API (128Mi),
-#   INGRESS_HOST (vide = match par IP)
+#   INGRESS_HOST (vide = match par IP),
+#   ACME_EMAIL  (vide = pas de TLS ; sinon, génère ClusterIssuer + tls block).
 
 set -euo pipefail
 
@@ -23,6 +24,11 @@ REPLICAS_WEB="${REPLICAS_WEB:-2}"
 CPU_LIMIT_API="${CPU_LIMIT_API:-200m}"
 MEM_LIMIT_API="${MEM_LIMIT_API:-128Mi}"
 INGRESS_HOST="${INGRESS_HOST:-}"
+ACME_EMAIL="${ACME_EMAIL:-}"
+
+# TLS actif uniquement si on a un hostname public ET un email ACME.
+TLS_ENABLED=0
+[[ -n "$INGRESS_HOST" && -n "$ACME_EMAIL" ]] && TLS_ENABLED=1
 
 API_DEPLOY="${APP_NAME}-api"
 WEB_DEPLOY="${APP_NAME}-web"
@@ -184,6 +190,25 @@ spec:
 EOF
 
 # ----- Ingress avec middleware stripPrefix sur /api -------------------------
+# Annotations supplémentaires en mode TLS :
+#   - entrypoints websecure (HTTPS) et redirection HTTP → HTTPS
+#   - cert-manager génère un Secret <APP_NAME>-tls signé par Let's Encrypt
+INGRESS_ENTRYPOINTS="web"
+INGRESS_TLS_BLOCK=""
+INGRESS_CERT_ANNOT=""
+if (( TLS_ENABLED == 1 )); then
+  INGRESS_ENTRYPOINTS="web,websecure"
+  INGRESS_CERT_ANNOT=$'\n    cert-manager.io/cluster-issuer: letsencrypt-prod'
+  INGRESS_TLS_BLOCK=$(cat <<EOF
+
+  tls:
+    - hosts:
+        - ${INGRESS_HOST}
+      secretName: ${APP_NAME}-tls
+EOF
+  )
+fi
+
 {
   cat <<EOF
 ---
@@ -203,9 +228,9 @@ kind: Ingress
 metadata:
   name: ${APP_NAME}-ingress
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-    traefik.ingress.kubernetes.io/router.middlewares: default-strip-api-prefix@kubernetescrd
-spec:
+    traefik.ingress.kubernetes.io/router.entrypoints: ${INGRESS_ENTRYPOINTS}
+    traefik.ingress.kubernetes.io/router.middlewares: default-strip-api-prefix@kubernetescrd${INGRESS_CERT_ANNOT}
+spec:${INGRESS_TLS_BLOCK}
   rules:
 EOF
 
@@ -238,6 +263,28 @@ EOF
                   number: 80
 EOF
 } > "$WORK_DIR/k8s/base/ingress.yaml"
+
+# ----- ClusterIssuer Let's Encrypt (seulement si TLS activé) ---------------
+if (( TLS_ENABLED == 1 )); then
+  cat > "$WORK_DIR/k8s/base/cluster-issuer.yaml" <<EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${ACME_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-prod-account
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
+EOF
+fi
+
+(( TLS_ENABLED == 1 )) && echo "  - k8s/base/cluster-issuer.yaml (Let's Encrypt — ${ACME_EMAIL})"
 
 echo "  - k8s/base/api-deployment.yaml (${API_DEPLOY}, ${REPLICAS_API} réplicas, ${CPU_LIMIT_API}/${MEM_LIMIT_API})"
 echo "  - k8s/base/web-deployment.yaml (${WEB_DEPLOY}, ${REPLICAS_WEB} réplicas)"

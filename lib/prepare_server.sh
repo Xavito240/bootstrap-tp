@@ -109,7 +109,24 @@ else
   ok "metrics-server déjà présent"
 fi
 
-# ----- 7. UFW (firewall) ----------------------------------------------------
+# ----- 7. cert-manager (TLS automatique Let's Encrypt) ---------------------
+# Installé uniquement si ACME_EMAIL est passé par le script appelant.
+if [[ -n "${ACME_EMAIL:-}" ]]; then
+  if ! kubectl get ns cert-manager >/dev/null 2>&1; then
+    log "Installation de cert-manager (Helm)…"
+    helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true
+    helm repo update jetstack >/dev/null 2>&1 || true
+    helm install cert-manager jetstack/cert-manager \
+      --namespace cert-manager --create-namespace \
+      --set installCRDs=true \
+      --wait --timeout 5m
+    ok "cert-manager installé"
+  else
+    ok "cert-manager déjà installé"
+  fi
+fi
+
+# ----- 8. UFW (firewall) ----------------------------------------------------
 if command -v ufw >/dev/null 2>&1; then
   if ! sudo ufw status | grep -q "Status: active"; then
     log "Configuration de UFW…"
@@ -126,7 +143,7 @@ if command -v ufw >/dev/null 2>&1; then
   fi
 fi
 
-# ----- 8. fail2ban ----------------------------------------------------------
+# ----- 9. fail2ban ----------------------------------------------------------
 if ! command -v fail2ban-server >/dev/null 2>&1; then
   log "Installation de fail2ban…"
   sudo apt-get install -y -qq fail2ban

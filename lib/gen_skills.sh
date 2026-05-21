@@ -374,10 +374,116 @@ EOF
 chmod +x "$SKILLS_DIR/health-monitor/scripts/check_health.sh"
 
 # ====================================================================
+# SKILL 5 : rollback-manager
+# ====================================================================
+mkdir -p "$SKILLS_DIR/rollback-manager/scripts"
+
+cat > "$SKILLS_DIR/rollback-manager/SKILL.md" <<'EOF'
+---
+name: rollback-manager
+description: Use this skill when the user wants to MANUALLY roll back a deployment to a previous version, either by selecting a specific git SHA, a revision number from kubectl rollout history, or simply "the previous version". Triggers include "rollback to v1.2.3", "revert last deploy", "go back to commit abc1234", "annule le dernier déploiement", "reviens à la version d'hier". Different from health-monitor (which rolls back automatically on health failure) — this skill is for INTENTIONAL human-driven rollbacks.
+---
+
+# rollback-manager
+
+Roll back a Kubernetes deployment to a chosen previous revision.
+
+## When to use vs other skills
+
+- **rollback-manager** (this one): user explicitly asks to rollback.
+- **health-monitor**: rolls back AUTOMATICALLY when a health check fails after a deploy.
+- **k8s-deploy**: deploys a NEW version (forward).
+
+## Workflow
+
+1. Identify which deployment the user wants to roll back (api or web). Ask if ambiguous.
+2. Run `scripts/rollback.sh <deploy> list` to display revision history with image SHAs.
+3. Help the user pick a target:
+   - by revision number (`#3`),
+   - by image SHA (the last 7 chars of a git commit),
+   - by "previous" (=N-1, simplest case).
+4. Run `scripts/rollback.sh <deploy> to <target>`.
+5. Wait for `kubectl rollout status` to confirm.
+6. Invoke the `health-monitor` skill to validate the rolled-back version is healthy.
+
+## Output format
+
+```
+✓ Rolled back deployment/<name>
+  - From: <SHA before>  (revision N)
+  - To:   <SHA after>   (revision N-1)
+  - Duration: <s>s
+
+Suggested next: health-monitor (verify the rolled-back version is healthy)
+```
+
+## Rules
+
+- Never modify code or manifests — the rollback uses ONLY `kubectl rollout undo`.
+- Always confirm the target with the user if `<target>` is ambiguous.
+- After rollback, the previous version is GONE from history unless re-tagged in git.
+  If the user wants to keep both options open, prefer `kubectl set image` with an
+  explicit SHA tag instead (forward deploy of the older version).
+- Display the diff (`git log <from>..<to>`) if both SHAs are available, so the user
+  knows what's being reverted.
+EOF
+
+cat > "$SKILLS_DIR/rollback-manager/scripts/rollback.sh" <<'EOF'
+#!/usr/bin/env bash
+# Rollback helper for the rollback-manager skill.
+#
+# Usage:
+#   rollback.sh <deploy>  list                   # show revision history
+#   rollback.sh <deploy>  to previous            # undo to N-1
+#   rollback.sh <deploy>  to <revision-number>   # undo to specific revision
+
+set -euo pipefail
+
+DEPLOY="${1:?deployment name required (e.g. tp-app-api)}"
+ACTION="${2:?action required (list|to)}"
+
+case "$ACTION" in
+  list)
+    echo "=== Revision history for deployment/${DEPLOY} ==="
+    kubectl rollout history "deployment/${DEPLOY}"
+    echo
+    echo "=== Image per revision ==="
+    # Liste les ReplicaSets liés et leur image (donne le tag SHA).
+    kubectl get rs -l "app=${DEPLOY}" \
+      -o custom-columns=REV:.metadata.annotations.deployment\\.kubernetes\\.io/revision,NAME:.metadata.name,IMAGE:.spec.template.spec.containers[*].image \
+      --sort-by=.metadata.annotations.deployment\.kubernetes\.io/revision
+    ;;
+
+  to)
+    TARGET="${3:?target required (previous | <revision-number>)}"
+    if [[ "$TARGET" == "previous" ]]; then
+      echo "Rolling back deployment/${DEPLOY} to previous revision…"
+      kubectl rollout undo "deployment/${DEPLOY}"
+    elif [[ "$TARGET" =~ ^[0-9]+$ ]]; then
+      echo "Rolling back deployment/${DEPLOY} to revision ${TARGET}…"
+      kubectl rollout undo "deployment/${DEPLOY}" --to-revision="$TARGET"
+    else
+      echo "Target must be 'previous' or a revision number (got: ${TARGET})" >&2
+      exit 1
+    fi
+    kubectl rollout status "deployment/${DEPLOY}" --timeout=2m
+    echo "current_image=$(kubectl get deploy ${DEPLOY} -o jsonpath='{.spec.template.spec.containers[*].image}')"
+    ;;
+
+  *)
+    echo "Unknown action: ${ACTION} (use: list | to)" >&2
+    exit 1
+    ;;
+esac
+EOF
+chmod +x "$SKILLS_DIR/rollback-manager/scripts/rollback.sh"
+
+# ====================================================================
 # Summary
 # ====================================================================
 echo "  • .agents/skills/microservice-editor/"
 echo "  • .agents/skills/github-flow/"
 echo "  • .agents/skills/k8s-deploy/ (+ 2 scripts + DEPLOYMENT_GUIDE.md)"
 echo "  • .agents/skills/health-monitor/ (+ check_health.sh)"
+echo "  • .agents/skills/rollback-manager/ (+ rollback.sh)"
 echo "  • .claude/skills → symlink vers .agents/skills"
