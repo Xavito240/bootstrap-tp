@@ -124,15 +124,58 @@ class WorkspacePaths:
         ]
 
     def is_running(self) -> bool:
+        """
+        True ssi un process bootstrap est vraiment vivant.
+
+        Détecte et nettoie :
+          - pid file inexistant ou corrompu
+          - process inexistant (ProcessLookupError)
+          - process zombie (<defunct>) — os.kill(pid, 0) réussit pour les
+            zombies, donc on doit aussi vérifier le `state` via ps
+        """
         if not self.pid_file.exists():
             return False
         try:
             pid = int(self.pid_file.read_text().strip())
-            os.kill(pid, 0)
-            return True
-        except (ValueError, ProcessLookupError, PermissionError):
+        except ValueError:
             self.pid_file.unlink(missing_ok=True)
             return False
+
+        # Le process existe-t-il ? (ProcessLookupError si non)
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            self._cleanup_stale()
+            return False
+        except PermissionError:
+            # On n'a pas la permission, mais le process existe — considéré vivant
+            return True
+
+        # Le process existe — mais est-il zombie ?
+        try:
+            state = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "stat="],
+                capture_output=True, text=True, timeout=2,
+            ).stdout.strip()
+        except Exception:
+            state = ""
+
+        # 'Z' = zombie (macOS) ; certains systèmes affichent 'Z+'
+        if state.startswith("Z") or "Z" in state.split()[0:1]:
+            # Reaper le zombie pour libérer le slot de process
+            try:
+                os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                pass  # pas notre enfant (Flask a redémarré), ps gardera l'entrée
+            self._cleanup_stale()
+            return False
+
+        return True
+
+    def _cleanup_stale(self) -> None:
+        """Nettoie les fichiers laissés par un run mort (pid + lock)."""
+        self.pid_file.unlink(missing_ok=True)
+        self.lock_file.unlink(missing_ok=True)
 
     def prefill(self) -> dict:
         if not self.env_file.exists():
@@ -383,14 +426,80 @@ def delete_workspace(name):
     ws = get_ws(name)
     if not ws.exists():
         abort(404)
-    if ws.is_running():
-        return jsonify({"error": "Un bootstrap est en cours, impossible de supprimer"}), 409
     if name == "default":
         return jsonify({"error": "Refus de supprimer le workspace 'default' (--reset à la place)"}), 400
 
+    force = request.args.get("force", "0") == "1" or request.form.get("force") == "1"
+
+    if ws.is_running():
+        if not force:
+            return jsonify({
+                "error": "Un bootstrap semble en cours. Ajoute ?force=1 pour forcer.",
+                "can_force": True,
+            }), 409
+        # Force : on tue d'abord
+        _force_stop(ws)
+
     import shutil
-    shutil.rmtree(ws.dir)
+    try:
+        shutil.rmtree(ws.dir)
+    except Exception as e:
+        return jsonify({"error": f"Suppression impossible : {e}"}), 500
     return jsonify({"status": "deleted"})
+
+
+def _force_stop(ws: WorkspacePaths) -> dict:
+    """
+    Tue le bootstrap en cours sur ce workspace, robuste face aux zombies
+    et aux processus déjà morts. Nettoie TOUJOURS les fichiers d'état.
+    Retourne un dict explicatif (utilisé par /stop).
+    """
+    result = {"signals_sent": [], "errors": []}
+
+    if not ws.pid_file.exists():
+        ws.lock_file.unlink(missing_ok=True)
+        return {**result, "status": "not_running"}
+
+    try:
+        pid = int(ws.pid_file.read_text().strip())
+    except ValueError:
+        ws._cleanup_stale()
+        return {**result, "status": "stale_pid_cleaned"}
+
+    # Essayer SIGTERM sur le process group
+    for sig_name, sig in [("SIGTERM", signal.SIGTERM), ("SIGKILL", signal.SIGKILL)]:
+        try:
+            try:
+                pgid = os.getpgid(pid)
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                # Plus de process group, essayer le PID seul
+                try:
+                    os.kill(pid, sig)
+                except ProcessLookupError:
+                    pass
+            result["signals_sent"].append(sig_name)
+        except PermissionError as e:
+            result["errors"].append(f"{sig_name}: permission refusée ({e})")
+
+        # Attendre un peu
+        for _ in range(10):  # ~1s max
+            time.sleep(0.1)
+            if not ws.is_running():
+                break
+
+        if not ws.is_running():
+            break
+
+    # Reap les zombies éventuels
+    try:
+        os.waitpid(pid, os.WNOHANG)
+    except (ChildProcessError, ProcessLookupError):
+        pass
+
+    # Toujours nettoyer les fichiers, peu importe si le kill a "réussi"
+    ws._cleanup_stale()
+    return {**result, "status": "stopped"}
 
 
 @app.route("/workspaces/<name>/stop", methods=["POST"])
@@ -398,19 +507,47 @@ def stop_workspace(name):
     ws = get_ws(name)
     if not ws.exists():
         abort(404)
-    if not ws.is_running():
-        return jsonify({"status": "not_running"})
-    try:
-        pid = int(ws.pid_file.read_text().strip())
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
-        time.sleep(1)
-        if ws.is_running():
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    ws.pid_file.unlink(missing_ok=True)
-    ws.lock_file.unlink(missing_ok=True)
-    return jsonify({"status": "stopped"})
+    result = _force_stop(ws)
+    return jsonify(result)
+
+
+@app.route("/workspaces/<name>/unlock", methods=["POST"])
+def unlock_workspace(name):
+    """
+    Endpoint de récupération : nettoie de force le pid file et le lock file
+    sans tenter de killer quoi que ce soit. À utiliser quand l'UI est bloquée
+    après un crash.
+    """
+    ws = get_ws(name)
+    if not ws.exists():
+        abort(404)
+    ws._cleanup_stale()
+    return jsonify({"status": "unlocked"})
+
+
+# ----- Startup cleanup ----------------------------------------------------
+def cleanup_stale_workspaces() -> None:
+    """
+    Au démarrage, scanne tous les workspaces et nettoie les PID files qui
+    pointent vers des process morts ou des zombies.
+    """
+    if not RUNS_DIR.is_dir():
+        return
+    cleaned = 0
+    for path in RUNS_DIR.iterdir():
+        if not path.is_dir():
+            continue
+        try:
+            ws = WorkspacePaths(path.name)
+        except ValueError:
+            continue
+        # is_running() nettoie automatiquement les stale via _cleanup_stale()
+        if ws.pid_file.exists():
+            was_dead = not ws.is_running()
+            if was_dead:
+                cleaned += 1
+    if cleaned:
+        print(f"  ✓ Nettoyé {cleaned} workspace(s) avec PID stale")
 
 
 # ----- Main ---------------------------------------------------------------
@@ -418,5 +555,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5005"))
     host = "127.0.0.1"
     print(f"\n  Bootstrap TP — interface web (multi-workspace)")
-    print(f"  → http://{host}:{port}\n")
+    print(f"  → http://{host}:{port}")
+    cleanup_stale_workspaces()
+    print()
     app.run(host=host, port=port, debug=False, threaded=True)

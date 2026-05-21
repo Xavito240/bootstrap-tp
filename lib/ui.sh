@@ -117,6 +117,22 @@ ui_prompt() {
     return 0
   fi
 
+  # En mode non-interactif (--config / Web UI) : ne JAMAIS prompter.
+  # Si la valeur attendue est manquante, on échoue clairement (au lieu de
+  # bloquer indéfiniment sur un gum input sans TTY).
+  if [[ "${BOOTSTRAP_NONINTERACTIVE:-0}" == "1" ]]; then
+    if [[ "$mode" == "optional" ]]; then
+      # Optionnel : on accepte le vide
+      printf -v "$var_name" '%s' ""
+      # shellcheck disable=SC2163
+      export "${var_name?}"
+      return 0
+    fi
+    ui_err "Variable requise non définie : ${var_name} (mode non-interactif)"
+    ui_info "Ajoute ${var_name}=\"...\" dans ton fichier .bootstrap-env"
+    exit 1
+  fi
+
   local answer=""
   if _has_gum; then
     local args=(
@@ -171,6 +187,14 @@ ui_choose() {
 
   if [[ -n "$current" ]]; then
     ui_skip "${var_name} déjà défini (${current})"
+    return 0
+  fi
+
+  # Non-interactif : fallback sur le default sans demander
+  if [[ "${BOOTSTRAP_NONINTERACTIVE:-0}" == "1" ]]; then
+    printf -v "$var_name" '%s' "$default"
+    # shellcheck disable=SC2163
+    export "${var_name?}"
     return 0
   fi
 
