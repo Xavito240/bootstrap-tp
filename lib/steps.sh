@@ -443,28 +443,34 @@ print_success() {
 }
 
 show_banner() {
-  # ASCII art DEPLOYMATIC en navy + sous-titre coral.
-  # Le banner est large (~94 cols) ; sur un terminal < 90 cols on retombe sur
-  # le gum_box simple pour rester lisible.
+  # Logo DeployMatic en gros ASCII (ANSI Shadow), empilé sur 2 mots
+  # (DEPLOY / MATIC) → ~50 colonnes, rentre dans tous les terminaux.
+  # Fallback gum_box uniquement pour les terminaux vraiment étroits (< 52).
   local cols="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
-  if (( cols < 90 )); then
+  if (( cols < 52 )); then
     gum_box "$C_NAVY_HEX" \
-      "DeployMatic — TP DevSecOps" \
-      "Création repo + CI/CD + déploiement K8s en un seul script"
+      "DeployMatic" \
+      "Chaîne DevSecOps automatisée"
     return 0
   fi
 
   printf '%b' "${C_NAVY}${C_BOLD}"
   cat <<'BANNER'
 
-██████╗ ███████╗██████╗ ██╗      ██████╗ ██╗   ██╗███╗   ███╗ █████╗ ████████╗██╗ ██████╗
-██╔══██╗██╔════╝██╔══██╗██║     ██╔═══██╗╚██╗ ██╔╝████╗ ████║██╔══██╗╚══██╔══╝██║██╔════╝
-██║  ██║█████╗  ██████╔╝██║     ██║   ██║ ╚████╔╝ ██╔████╔██║███████║   ██║   ██║██║
-██║  ██║██╔══╝  ██╔═══╝ ██║     ██║   ██║  ╚██╔╝  ██║╚██╔╝██║██╔══██║   ██║   ██║██║
-██████╔╝███████╗██║     ███████╗╚██████╔╝   ██║   ██║ ╚═╝ ██║██║  ██║   ██║   ██║╚██████╗
-╚═════╝ ╚══════╝╚═╝     ╚══════╝ ╚═════╝    ╚═╝   ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝
+██████╗ ███████╗██████╗ ██╗      ██████╗ ██╗   ██╗
+██╔══██╗██╔════╝██╔══██╗██║     ██╔═══██╗╚██╗ ██╔╝
+██║  ██║█████╗  ██████╔╝██║     ██║   ██║ ╚████╔╝
+██║  ██║██╔══╝  ██╔═══╝ ██║     ██║   ██║  ╚██╔╝
+██████╔╝███████╗██║     ███████╗╚██████╔╝   ██║
+╚═════╝ ╚══════╝╚═╝     ╚══════╝ ╚═════╝    ╚═╝
+   ███╗   ███╗ █████╗ ████████╗██╗ ██████╗
+   ████╗ ████║██╔══██╗╚══██╔══╝██║██╔════╝
+   ██╔████╔██║███████║   ██║   ██║██║
+   ██║╚██╔╝██║██╔══██║   ██║   ██║██║
+   ██║ ╚═╝ ██║██║  ██║   ██║   ██║╚██████╗
+   ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝
 BANNER
   printf '%b' "${C_RESET}"
-  printf "  ${C_CORAL}Chaîne DevSecOps automatisée — k3s + GitHub Actions + Skills Claude Code${C_RESET}\n"
-  printf "  ${C_DIM}Création repo + CI/CD + déploiement K8s en un seul script${C_RESET}\n\n"
+  printf "  ${C_CORAL}${C_BOLD}Chaîne DevSecOps automatisée${C_RESET}\n"
+  printf "  ${C_DIM}k3s + GitHub Actions + Skills Claude Code — en un seul script${C_RESET}\n\n"
 }
